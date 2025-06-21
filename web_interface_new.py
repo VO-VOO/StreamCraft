@@ -56,9 +56,8 @@ def analyze_video_url(url):
             get_download_path(),
             check_cookies_status(),
             "⚠️ 请输入有效的URL",
-            [],
-            "",
-            []  # 空的默认选择
+            [],  # choices
+            ""   # video_data_storage
         )
     
     try:
@@ -78,9 +77,8 @@ def analyze_video_url(url):
                     get_download_path(),
                     check_cookies_status(),
                     "❌ 无法解析合集内容",
-                    [],
-                    "",
-                    []  # 空的默认选择
+                    [],  # choices
+                    ""   # video_data_storage
                 )
             
             print(f"📊 解析到 {len(videos)} 个视频，正在获取真实标题...")
@@ -106,9 +104,8 @@ def analyze_video_url(url):
                 get_download_path(),
                 check_cookies_status(),
                 video_info,
-                video_choices,
-                json.dumps(enhanced_videos),  # 存储完整的视频数据
-                video_choices  # 默认全选
+                video_choices,  # choices
+                json.dumps(enhanced_videos)  # video_data_storage
             )
             
         else:
@@ -140,18 +137,16 @@ def analyze_video_url(url):
                     get_download_path(),
                     check_cookies_status(),
                     video_info,
-                    video_choices,
-                    json.dumps(enhanced_videos),
-                    video_choices  # 默认选中
+                    video_choices,  # choices
+                    json.dumps(enhanced_videos)  # video_data_storage
                 )
             else:
                 return (
                     get_download_path(),
                     check_cookies_status(),
                     "📹 检测到单个视频（无法获取标题）",
-                    [],
-                    "",
-                    []  # 空的默认选择
+                    [],  # choices
+                    ""   # video_data_storage
                 )
                 
     except Exception as e:
@@ -160,15 +155,61 @@ def analyze_video_url(url):
             get_download_path(),
             check_cookies_status(),
             f"❌ 分析失败: {str(e)}",
-            [],
-            "",
-            []  # 空的默认选择
+            [],  # choices
+            ""   # video_data_storage
         )
 
 
-def select_all_videos(video_selection_choices):
+def auto_select_all_from_choices(choices):
+    """根据choices自动全选所有选项"""
+    return choices
+
+
+def select_all_videos(current_choices):
     """全选所有视频"""
-    return video_selection_choices
+    return current_choices
+
+
+def analyze_and_auto_select(url):
+    """分析URL并自动选择第一个视频"""
+    print(f"🔍 开始分析URL: {url}")
+    
+    if not url.strip():
+        return "❌ 请输入URL", "", "", gr.CheckboxGroup(choices=[], value=[]), ""
+    
+    try:        # 调用分析函数
+        result = analyze_video_url(url)
+        
+        if len(result) < 5:
+            error_msg = result[0] if result else "❌ 分析失败"
+            return error_msg, "", "", gr.CheckboxGroup(choices=[], value=[]), ""
+        
+        # 解析返回结果
+        download_path, cookies_status, video_info, video_choices_list, video_data_json = result
+        
+        print(f"📊 获取到 {len(video_choices_list)} 个视频选择")
+        
+        # 自动选择第一个视频
+        auto_selected = video_choices_list[:1] if video_choices_list else []
+        
+        # 创建同时包含choices和value的CheckboxGroup更新
+        updated_checkbox = gr.CheckboxGroup(
+            choices=video_choices_list,
+            value=auto_selected,
+            label="选择要下载的视频",
+            interactive=True
+        )
+        
+        print(f"🎯 自动选择: {auto_selected}")
+        
+        # 返回分析结果，video_selection只出现一次
+        return download_path, cookies_status, video_info, updated_checkbox, video_data_json
+        
+    except Exception as e:
+        print(f"❌ 分析并自动选择失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return "❌ 分析失败", "", f"❌ 分析失败: {str(e)}", gr.CheckboxGroup(choices=[], value=[]), ""
 
 
 def clear_all_selections():
@@ -382,21 +423,19 @@ def create_interface():
                     "❌ 清空",
                     elem_classes=["gradio-button"]
                 )
-        
-        # 隐藏的数据存储
+          # 隐藏的数据存储
         video_data_storage = gr.Textbox(visible=False)
         
         # 事件绑定
         analyze_btn.click(
-            fn=analyze_video_url,
+            fn=analyze_and_auto_select,
             inputs=[url_input],
             outputs=[
                 download_path_display,
                 cookies_status_display,
                 video_info_display,
                 video_selection,
-                video_data_storage,
-                video_selection  # 更新选中状态（默认全选）
+                video_data_storage
             ]
         )
         
