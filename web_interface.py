@@ -13,6 +13,8 @@ import queue
 # 导入 dlp下载器.py 的函数
 from dlp下载器 import check_playlist, get_playlist_videos, download_videos, get_python_executable
 from video_title_fetcher import enhance_video_titles
+# 导入音频提取功能
+from sperate_audio import convert_to_audio
 
 
 def get_download_path():
@@ -203,6 +205,38 @@ def analyze_and_auto_select(url):
         return "❌ 分析失败", "", f"❌ 分析失败: {str(e)}", gr.CheckboxGroup(choices=[], value=[]), "", []
 
 
+def find_video_file(download_path, video_title):
+    """智能查找下载的视频文件"""
+    import glob
+    
+    # 常见的视频扩展名
+    video_extensions = ['mp4', 'mkv', 'webm', 'avi', 'mov', 'flv', 'm4v']
+    
+    # 首先尝试精确匹配（清理后的标题）
+    sanitized_title = video_title
+    for char in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
+        sanitized_title = sanitized_title.replace(char, '_')
+    
+    for ext in video_extensions:
+        exact_path = os.path.join(download_path, f"{sanitized_title}.{ext}")
+        if os.path.exists(exact_path):
+            return exact_path
+    
+    # 如果精确匹配失败，尝试模糊匹配
+    # 提取标题的关键词
+    title_words = sanitized_title.split()[:3]  # 取前3个词
+    
+    for ext in video_extensions:
+        pattern = os.path.join(download_path, f"*.{ext}")
+        for file_path in glob.glob(pattern):
+            filename = os.path.basename(file_path)
+            # 检查文件名是否包含标题的关键词
+            if all(word.lower() in filename.lower() for word in title_words if len(word) > 2):
+                return file_path
+    
+    return None
+
+
 def download_selected_videos(url, video_data_json, selected_videos, auto_extract_audio, audio_format, keep_original):
     """下载选中的视频"""
     if not url.strip():
@@ -238,17 +272,52 @@ def download_selected_videos(url, video_data_json, selected_videos, auto_extract
         # 获取cookies路径
         script_dir = os.path.dirname(os.path.abspath(__file__))
         cookies_path = os.path.join(script_dir, "cookies.txt")
-        
-        # 使用 dlp下载器.py 的下载函数
+          # 使用 dlp下载器.py 的下载函数
         result_queue = queue.Queue()
         
         def download_thread():
             try:
                 # 调用 dlp下载器.py 的下载函数，Web界面不使用时间戳文件夹
                 download_videos(url, videos, selected_indices, cookies_path, use_timestamp=False)
-                result_queue.put("✅ 下载完成！")
+                
+                # 如果用户选择自动提取音频
+                if auto_extract_audio:
+                    result_queue.put("🎵 开始提取音频...")
+                    
+                    # 获取下载路径
+                    download_path = get_download_path()
+                    
+                    # 确定音频格式选择
+                    format_choice = "1" if audio_format == "AAC" else "2"  # 1为AAC，2为FLAC
+                    keep_original_choice = "1" if keep_original else "2"  # 1保留，2删除
+                      # 提取每个下载的视频的音频
+                    success_count = 0
+                    total_count = len(selected_indices)
+                    
+                    for idx in selected_indices:
+                        if 0 <= idx < len(videos):
+                            video = videos[idx]
+                            video_title = video['title']
+                            
+                            # 智能查找视频文件
+                            video_file_path = find_video_file(download_path, video_title)
+                            
+                            if video_file_path and os.path.exists(video_file_path):
+                                result_queue.put(f"🎵 正在提取音频: {os.path.basename(video_file_path)}")
+                                
+                                if convert_to_audio(video_file_path, format_choice, keep_original_choice):
+                                    success_count += 1
+                                    result_queue.put(f"✅ 音频提取成功: {os.path.basename(video_file_path)}")
+                                else:
+                                    result_queue.put(f"❌ 音频提取失败: {os.path.basename(video_file_path)}")
+                            else:
+                                result_queue.put(f"⚠️ 未找到视频文件: {video_title}")
+                    
+                    result_queue.put(f"🎵 音频提取完成! 成功: {success_count}/{total_count}")
+                
+                result_queue.put("✅ 所有任务完成！")
             except Exception as e:
-                result_queue.put(f"❌ 下载失败: {str(e)}")
+                result_queue.put(f"❌ 处理失败: {str(e)}")
         
         # 在新线程中执行下载，避免阻塞界面
         thread = threading.Thread(target=download_thread)
