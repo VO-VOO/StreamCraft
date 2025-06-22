@@ -5,6 +5,8 @@ import shutil
 import tempfile
 import uuid 
 import time
+import tkinter as tk
+from tkinter import filedialog
 
 
 def is_video_file(file_path):
@@ -26,11 +28,33 @@ def is_video_file(file_path):
     return ext.lower() in video_extensions
 
 
+def select_folder_with_tkinter():
+    """使用tkinter选择文件夹，支持高DPI"""
+    # 创建根窗口
+    root = tk.Tk()
+    root.withdraw()  # 隐藏主窗口
+    
+    # 设置高DPI支持
+    try:
+        from ctypes import windll
+        windll.shcore.SetProcessDpiAwareness(1)
+    except:
+        pass
+    
+    # 打开文件夹选择对话框
+    folder_path = filedialog.askdirectory(
+        title="请选择包含视频文件的文件夹",
+        mustexist=True
+    )
+    
+    root.destroy()  # 销毁窗口
+    return folder_path
+
+
 def get_video_files(directory):
-    """获取目录中的所有视频文件"""
-    if os.path.isfile(directory) and is_video_file(directory):
-        # 如果输入的是单个视频文件
-        return [directory]
+    """获取目录中的所有视频文件（仅首层）"""
+    if not os.path.isdir(directory):
+        return []
 
     video_files = []
     # 只扫描第一层级
@@ -39,7 +63,7 @@ def get_video_files(directory):
         if os.path.isfile(item_path) and is_video_file(item_path):
             video_files.append(item_path)
 
-    return video_files
+    return sorted(video_files)  # 排序以便更好的显示
 
 
 def convert_to_audio(video_path, format_choice, keep_original):
@@ -91,26 +115,29 @@ def convert_to_audio(video_path, format_choice, keep_original):
             encoding="utf-8",
             errors="replace",
             timeout=300,  # 5分钟超时
-        )
-
-        # 检查转换结果
-        if result.returncode == 0 and os.path.exists(temp_output):
-            # 复制临时输出文件到最终位置
+        )        # 检查转换结果
+        if result.returncode == 0 and os.path.exists(temp_output):            # 复制临时输出文件到最终位置
             shutil.copy2(temp_output, final_output)
-            print(f"转换完成: {final_output}")
+            print(f"✅ 转换完成: {os.path.basename(final_output)}")
 
             # 如果用户选择不保留原视频
             if keep_original == "2":
                 os.remove(video_path)
-                print(f"已删除原视频文件: {video_path}")
+                print(f"🗑️ 已删除原视频文件: {os.path.basename(video_path)}")
+            
+            return True
         else:
-            print(f"转换失败: {video_path}")
-            print(f"FFmpeg输出: {result.stdout}")
-
+            print(f"❌ 转换失败: {filename}")
+            if result.stdout:
+                print(f"FFmpeg输出: {result.stdout}")
+            return False
+            
     except subprocess.TimeoutExpired:
-        print(f"转换超时: 处理 {filename} 时间过长，已中止")
+        print(f"⏰ 转换超时: 处理 {filename} 时间过长，已中止")
+        return False
     except Exception as e:
-        print(f"转换过程中出错: {e}")
+        print(f"❌ 转换过程中出错: {e}")
+        return False
     finally:
         # 清理临时文件
         for temp_file in [temp_input, temp_output]:
@@ -122,108 +149,92 @@ def convert_to_audio(video_path, format_choice, keep_original):
 
 
 def main():
-    # 确保脚本使用UTF-8编码处理所有文本
-    if sys.stdout.encoding.lower() != "utf-8":
-        try:
-            # 尝试将控制台编码设置为UTF-8
-            sys.stdout.reconfigure(encoding="utf-8") # type: ignore
-        except AttributeError:
-            # Python 3.6及更早版本不支持reconfigure
-            pass
-
+    """简化的主函数，使用图形界面选择文件夹"""
+    print("🎬" + "=" * 48)
+    print("   视频音频分离工具")  
     print("=" * 50)
-
-    # 获取目标路径
-    target_path = input("请输入目标文件夹路径或视频文件路径: ").strip('"')
-
-    if not os.path.exists(target_path):
-        print(f"错误: 路径 '{target_path}' 不存在!")
+    
+    # 使用tkinter选择文件夹
+    print("📁 请在弹出的窗口中选择包含视频文件的文件夹...")
+    target_folder = select_folder_with_tkinter()
+    
+    if not target_folder:
+        print("❌ 未选择文件夹，程序退出")
         return
-
-    # 获取视频文件列表
-    video_files = get_video_files(target_path)
-
+    
+    print(f"📂 选择的文件夹: {target_folder}")
+    
+    # 获取视频文件列表（仅首层）
+    video_files = get_video_files(target_folder)
+    
     if not video_files:
-        print("未找到任何视频文件!")
+        print("❌ 在选择的文件夹中未找到任何视频文件!")
         return
-
+    
     # 显示找到的视频文件
-    print(f"\n找到 {len(video_files)} 个视频文件:")
+    print(f"\n🎥 找到 {len(video_files)} 个视频文件:")
     for i, video in enumerate(video_files, 1):
-        print(f"{i}. {os.path.basename(video)}")
-
-    # 询问是否只处理特定视频
-    choice = input("\n是否只处理部分视频? (Y/N, 默认N): ").strip().upper()
+        print(f"  {i:2d}. {os.path.basename(video)}")
+    
+    # 选择要处理的视频（默认全选）
+    print(f"\n📋 默认全选所有视频")
+    selection_input = input("输入要处理的视频编号(如: 1,3,5)，直接回车全选: ").strip()
+    
     selected_videos = []
-
-    if choice == "Y":
-        indices_input = input("请输入视频编号(如1,3,5): ").strip()
+    if selection_input:
         try:
-            indices = [
-                int(idx.strip()) for idx in indices_input.split(",") if idx.strip()
-            ]
+            indices = [int(idx.strip()) for idx in selection_input.split(",") if idx.strip()]
             for idx in indices:
                 if 1 <= idx <= len(video_files):
                     selected_videos.append(video_files[idx - 1])
                 else:
-                    print(f"警告: 编号 {idx} 超出范围，将被忽略")
+                    print(f"⚠️ 编号 {idx} 超出范围，将被忽略")
         except ValueError:
-            print("输入格式错误，将处理所有视频")
+            print("❌ 输入格式错误，将处理所有视频")
             selected_videos = video_files
     else:
         selected_videos = video_files
-
+    
     if not selected_videos:
-        print("没有选择任何视频，操作取消")
+        print("❌ 没有选择任何视频，程序退出")
         return
-
-    # 询问转换格式
-    print("\n请选择转换格式:")
-    print("1. 高品质AAC音频 (默认)")
-    print("2. 无损FLAC音频")
-    format_choice = input("请输入选项编号 [1/2]: ").strip() or "1"  # 默认选择AAC
-
+    
+    print(f"✅ 将处理 {len(selected_videos)} 个视频文件")
+    
+    # 选择音频格式
+    print("\n🎵 请选择输出音频格式:")
+    print("  1. AAC (高品质，小文件)")
+    print("  2. FLAC (无损，大文件)")
+    format_choice = input("请选择 [1/2] (默认AAC): ").strip() or "1"
+    
     while format_choice not in ["1", "2"]:
-        format_choice = input("无效选项，请重新输入 [1/2]: ").strip()
-
-    # 询问是否保留原视频
-    print("\n是否保留原视频文件:")
-    print("1. 是（默认）")
-    print("2. 否")
-    keep_original = input("请输入选项编号 [1/2]: ").strip() or "1"  # 默认保留
-
-    while keep_original not in ["1", "2"]:
-        keep_original = input("无效选项，请重新输入 [1/2]: ").strip()
-
+        format_choice = input("❌ 无效选项，请重新选择 [1/2]: ").strip()
+    
+    format_name = "AAC" if format_choice == "1" else "FLAC"
+    print(f"📤 选择格式: {format_name}")
+    
     # 开始转换
+    print(f"\n🚀 开始转换...")
     start_time = time.time()
     total = len(selected_videos)
     successful = 0
-
-    print("\n===== 开始转换 =====")
+    
     for i, video_path in enumerate(selected_videos, 1):
-        print(f"\n[{i}/{total}] 处理文件 {os.path.basename(video_path)}")
-        file_start = time.time()
-
-        convert_to_audio(video_path, format_choice, keep_original)
-
-        # 检查是否创建了输出文件
-        output_format = "m4a" if format_choice == "1" else "flac"
-        expected_output = os.path.splitext(video_path)[0] + f".{output_format}"
-        if os.path.exists(expected_output):
+        print(f"\n[{i}/{total}] 处理: {os.path.basename(video_path)}")
+        
+        # 转换视频（默认保留原文件）
+        if convert_to_audio(video_path, format_choice, "1"):
             successful += 1
-
-        file_duration = time.time() - file_start
-        print(f"处理用时: {file_duration:.1f}秒")
-
-    # 汇总报告
+    
+    # 转换完成报告
     total_duration = time.time() - start_time
-    print("\n===== 转换完成 =====")
-    print(f"总用时: {total_duration:.1f}秒")
-    print(
-        f"处理结果: 共 {total} 个文件，成功 {successful} 个，失败 {total - successful} 个"
-    )
-
-
+    print(f"\n🎉 转换完成!")
+    print(f"⏱️  总用时: {total_duration:.1f}秒")
+    print(f"📊 处理结果: 共 {total} 个文件，成功 {successful} 个，失败 {total - successful} 个")
+    
+    if successful > 0:
+        print(f"📁 音频文件保存在: {target_folder}")
+    
+    
 if __name__ == "__main__":
     main()
