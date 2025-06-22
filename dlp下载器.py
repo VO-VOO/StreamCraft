@@ -9,6 +9,22 @@ def get_python_executable():
     """获取当前Python解释器的完整路径"""
     return sys.executable
 
+def get_download_path():
+    """从config.json获取下载路径"""
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.join(script_dir, "config.json")
+        
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                return config.get('download_path', r"C:\Users\chenw\Videos")
+        else:
+            return r"C:\Users\chenw\Videos"
+    except Exception as e:
+        print(f"读取配置文件失败: {e}")
+        return r"C:\Users\chenw\Videos"
+
 def check_playlist(url):
     """检查URL是否为视频合集"""
     try:
@@ -81,15 +97,25 @@ def sanitize_filename(filename):
         filename = filename.replace(char, '_')
     return filename
 
-def create_timestamped_folder():
-    """创建以当前时间命名的文件夹"""
-    current_time = datetime.now().strftime("%Y-%m-%d %H：%M")
-    folder_name = current_time
-    if not os.path.exists(folder_name):
-        os.makedirs(folder_name)
-    return folder_name
+def create_download_folder(use_timestamp=True, base_path=None):
+    """创建下载文件夹"""
+    if base_path is None:
+        base_path = get_download_path()
+    
+    if use_timestamp:
+        # 使用时间戳子文件夹（命令行模式）
+        current_time = datetime.now().strftime("%Y-%m-%d %H：%M")
+        download_folder = os.path.join(base_path, current_time)
+    else:
+        # 直接使用配置路径（Web界面模式）
+        download_folder = base_path
+    
+    if not os.path.exists(download_folder):
+        os.makedirs(download_folder)
+    
+    return download_folder
 
-def download_videos(url, videos=None, selected_indices=None, cookies_path=None):
+def download_videos(url, videos=None, selected_indices=None, cookies_path=None, use_timestamp=True):
     """
     下载视频
     
@@ -98,10 +124,11 @@ def download_videos(url, videos=None, selected_indices=None, cookies_path=None):
         videos: 视频列表（用于合集）
         selected_indices: 选定的视频索引（用于合集）
         cookies_path: cookies文件路径
+        use_timestamp: 是否使用时间戳文件夹（Web界面传False）
     """
     try:
-        # 创建以当前时间命名的文件夹
-        download_folder = create_timestamped_folder()
+        # 创建下载文件夹
+        download_folder = create_download_folder(use_timestamp=use_timestamp)
         print(f"将下载视频到文件夹: {download_folder}")
         
         # 获取正确的Python解释器路径
@@ -134,7 +161,6 @@ def download_videos(url, videos=None, selected_indices=None, cookies_path=None):
                     
                     subprocess.run(download_cmd, check=True)
             
-            
             print("所选视频下载完成！")
         else:
             # 下载单个视频
@@ -163,10 +189,8 @@ def download_videos(url, videos=None, selected_indices=None, cookies_path=None):
     except subprocess.CalledProcessError as e:
         print(f"下载过程中出错：{e}")
 
-
-
-
 def main():
+    """命令行主函数"""
     # 获取当前目录
     current_dir = os.getcwd()
     
@@ -185,9 +209,10 @@ def main():
             
             if not videos:
                 print("无法解析合集中的视频，将尝试直接下载...")
-                download_videos(url, cookies_path=cookies_path)
+                download_videos(url, cookies_path=cookies_path, use_timestamp=True)
                 return
-              # 获取真实视频标题（使用标题模块）
+            
+            # 获取真实视频标题（使用标题模块）
             print("\n正在获取视频标题...")
             videos = enhance_video_titles(videos, url, cookies_path)
             
@@ -202,12 +227,12 @@ def main():
                 try:
                     # 将输入的序号转换为索引（减1，因为展示给用户时是从1开始的）
                     selected_indices = [int(idx.strip()) - 1 for idx in choice.split(',') if idx.strip()]
-                    download_videos(url, videos, selected_indices, cookies_path)
+                    download_videos(url, videos, selected_indices, cookies_path, use_timestamp=True)
                 except ValueError:
                     print("输入格式错误，请输入数字，用逗号分隔。")
             else:
                 # 下载全部视频
-                download_videos(url, videos, list(range(len(videos))), cookies_path)
+                download_videos(url, videos, list(range(len(videos))), cookies_path, use_timestamp=True)
         else:
             # 单个视频，获取标题并下载
             print("\n正在获取单个视频标题...")
@@ -225,10 +250,10 @@ def main():
             if enhanced_videos and enhanced_videos[0].get('title'):
                 print(f"\n获取到视频标题: {enhanced_videos[0]['title']}")
                 # 使用增强后的视频信息下载
-                download_videos(url, enhanced_videos, [0], cookies_path)
+                download_videos(url, enhanced_videos, [0], cookies_path, use_timestamp=True)
             else:
                 print("\n无法获取视频标题，使用默认方式下载")
-                download_videos(url, cookies_path=cookies_path)
+                download_videos(url, cookies_path=cookies_path, use_timestamp=True)
     except FileNotFoundError:
         print("yt-dlp未安装或没有添加到环境变量中。")
     except Exception as e:

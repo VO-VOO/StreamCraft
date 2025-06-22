@@ -50,7 +50,7 @@ def check_cookies_status():
 
 
 def analyze_video_url(url):
-    """分析视频URL，获取视频列表"""
+    """分析视频URL获取视频列表"""
     if not url.strip():
         return (
             get_download_path(),
@@ -160,29 +160,20 @@ def analyze_video_url(url):
         )
 
 
-def auto_select_all_from_choices(choices):
-    """根据choices自动全选所有选项"""
-    return choices
-
-
-def select_all_videos(current_choices):
-    """全选所有视频"""
-    return current_choices
-
-
 def analyze_and_auto_select(url):
     """分析URL并自动选择第一个视频"""
     print(f"🔍 开始分析URL: {url}")
     
     if not url.strip():
-        return "❌ 请输入URL", "", "", gr.CheckboxGroup(choices=[], value=[]), ""
+        return "❌ 请输入URL", "", "", gr.CheckboxGroup(choices=[], value=[]), "", []
     
-    try:        # 调用分析函数
+    try:
+        # 调用分析函数
         result = analyze_video_url(url)
         
         if len(result) < 5:
             error_msg = result[0] if result else "❌ 分析失败"
-            return error_msg, "", "", gr.CheckboxGroup(choices=[], value=[]), ""
+            return error_msg, "", "", gr.CheckboxGroup(choices=[], value=[]), "", []
         
         # 解析返回结果
         download_path, cookies_status, video_info, video_choices_list, video_data_json = result
@@ -203,18 +194,13 @@ def analyze_and_auto_select(url):
         print(f"🎯 自动选择: {auto_selected}")
         
         # 返回分析结果，video_selection只出现一次
-        return download_path, cookies_status, video_info, updated_checkbox, video_data_json
+        return download_path, cookies_status, video_info, updated_checkbox, video_data_json, video_choices_list
         
     except Exception as e:
         print(f"❌ 分析并自动选择失败: {e}")
         import traceback
         traceback.print_exc()
-        return "❌ 分析失败", "", f"❌ 分析失败: {str(e)}", gr.CheckboxGroup(choices=[], value=[]), ""
-
-
-def clear_all_selections():
-    """清空所有选择"""
-    return []
+        return "❌ 分析失败", "", f"❌ 分析失败: {str(e)}", gr.CheckboxGroup(choices=[], value=[]), "", []
 
 
 def download_selected_videos(url, video_data_json, selected_videos, auto_extract_audio, audio_format, keep_original):
@@ -258,8 +244,8 @@ def download_selected_videos(url, video_data_json, selected_videos, auto_extract
         
         def download_thread():
             try:
-                # 调用 dlp下载器.py 的下载函数
-                download_videos(url, videos, selected_indices, cookies_path)
+                # 调用 dlp下载器.py 的下载函数，Web界面不使用时间戳文件夹
+                download_videos(url, videos, selected_indices, cookies_path, use_timestamp=False)
                 result_queue.put("✅ 下载完成！")
             except Exception as e:
                 result_queue.put(f"❌ 下载失败: {str(e)}")
@@ -317,21 +303,56 @@ def create_interface():
         border-radius: 10px !important;
         color: #e0e0e0 !important;
     }
+    
+    /* 固定按钮样式 */
+    .fixed-buttons {
+        position: fixed !important;
+        bottom: 20px !important;
+        right: 20px !important;
+        z-index: 1000 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 10px !important;
+    }
+    
+    .fixed-btn {
+        width: 50px !important;
+        height: 50px !important;
+        border-radius: 50% !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 16px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+        cursor: pointer !important;
+        transition: all 0.3s ease !important;
+        min-width: 50px !important;
+        max-width: 50px !important;
+    }
+    
+    .fixed-btn:hover {
+        transform: scale(1.1) !important;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4) !important;
+    }
+    
+    .select-all-btn {
+        background: linear-gradient(45deg, #4CAF50, #45a049) !important;
+    }
+    
+    .clear-btn {
+        background: linear-gradient(45deg, #f44336, #da190b) !important;
+    }
+    
+    .top-btn {
+        background: linear-gradient(45deg, #2196F3, #1976D2) !important;
+    }
     """
     
     with gr.Blocks(css=custom_css, title="🎬 媒体处理工具", theme=gr.themes.Glass()) as demo: # type: ignore
-        gr.Markdown(
-            """
-            # 🎬 媒体处理工具
-            ### 强大的视频下载和音频提取工具
-            支持各大视频网站下载，批量音频提取
-            """,
-            elem_classes=["markdown"]
-        )
         
         with gr.Row():
             # 左侧主要操作区域
-            with gr.Column(scale=3):
+            with gr.Column(scale=2):
                 # 视频URL输入
                 url_input = gr.Textbox(
                     label="🔗 视频URL",
@@ -371,6 +392,16 @@ def create_interface():
                             elem_classes=["gradio-button"]
                         )
             
+            # 中间下载状态区域
+            with gr.Column(scale=2):
+                download_status = gr.Textbox(
+                    label="📊 下载状态",
+                    lines=10,
+                    max_lines=15,
+                    elem_classes=["gradio-textbox"],
+                    placeholder="等待下载任务..."
+                )
+            
             # 右侧信息显示区域
             with gr.Column(scale=1):
                 # 下载路径
@@ -396,35 +427,34 @@ def create_interface():
                     interactive=False,
                     elem_classes=["gradio-textbox"]
                 )
-                
-                # 下载状态
-                download_status = gr.Textbox(
-                    label="📊 下载状态",
-                    lines=8,
-                    max_lines=12,
-                    elem_classes=["gradio-textbox"]
-                )
         
-        # 视频选择区域
-        with gr.Row():
-            with gr.Column(scale=4):
-                video_selection = gr.CheckboxGroup(
-                    label="📋 选择要下载的视频",
-                    choices=[],
-                    value=[],
-                    elem_classes=["gradio-checkbox-group"]
-                )
-            with gr.Column(scale=1):
-                select_all_btn = gr.Button(
-                    "✅ 全选",
-                    elem_classes=["gradio-button"]
-                )
-                clear_all_btn = gr.Button(
-                    "❌ 清空",
-                    elem_classes=["gradio-button"]
-                )
-          # 隐藏的数据存储
+        # 视频选择区域 - 紧贴上方组件
+        video_selection = gr.CheckboxGroup(
+            label="📋 选择要下载的视频",
+            choices=[],
+            value=[],
+            elem_classes=["gradio-checkbox-group"]
+        )
+        
+        # 隐藏的数据存储
         video_data_storage = gr.Textbox(visible=False)
+        # 隐藏的choices状态存储
+        choices_state = gr.State([])
+        
+        # 固定位置的控制按钮
+        with gr.Row(elem_classes=["fixed-buttons"]):
+            select_all_btn = gr.Button("✓", elem_classes=["fixed-btn", "select-all-btn"])
+            clear_all_btn = gr.Button("✗", elem_classes=["fixed-btn", "clear-btn"]) 
+            top_btn = gr.Button("↑", elem_classes=["fixed-btn", "top-btn"])
+            
+        # 添加回到顶部的JavaScript
+        gr.HTML("""
+        <script>
+        function scrollToTop() {
+            window.scrollTo({top: 0, behavior: 'smooth'});
+        }
+        </script>
+        """)
         
         # 事件绑定
         analyze_btn.click(
@@ -435,7 +465,8 @@ def create_interface():
                 cookies_status_display,
                 video_info_display,
                 video_selection,
-                video_data_storage
+                video_data_storage,
+                choices_state
             ]
         )
         
@@ -452,18 +483,34 @@ def create_interface():
             outputs=[download_status]
         )
         
-        # 全选按钮事件
+        # 全选按钮事件 - 修复逻辑
+        def select_all_handler(current_choices):
+            print(f"📌 全选操作 - 当前choices: {current_choices}")
+            return current_choices
+        
         select_all_btn.click(
-            fn=select_all_videos,
-            inputs=[video_selection],
+            fn=select_all_handler,
+            inputs=[choices_state],
             outputs=[video_selection]
         )
         
-        # 清空按钮事件
+        # 清空按钮事件 - 修复逻辑
+        def clear_all_handler():
+            print("🗑️ 清空所有选择")
+            return []
+        
         clear_all_btn.click(
-            fn=clear_all_selections,
+            fn=clear_all_handler,
             inputs=[],
             outputs=[video_selection]
+        )
+        
+        # 回到顶部按钮事件
+        top_btn.click(
+            fn=lambda: None,
+            inputs=[],
+            outputs=[],
+            js="() => window.scrollTo({top: 0, behavior: 'smooth'})"
         )
     
     return demo
@@ -508,7 +555,7 @@ if __name__ == "__main__":
     demo = create_interface()
     demo.launch(
         server_name="0.0.0.0",
-        server_port=7860,
+        server_port=7862,
         share=False,
         inbrowser=True,
         show_error=True
