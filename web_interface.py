@@ -10,8 +10,8 @@ from typing import List, Tuple, Optional
 import threading
 import queue
 
-# 导入 dlp下载器.py 的函数
-from dlp下载器 import check_playlist, get_playlist_videos, download_videos, get_python_executable
+# 导入 video_dlp.py 的函数
+from video_dlp import check_playlist, get_playlist_videos, download_videos, get_python_executable
 from video_title_fetcher import enhance_video_titles
 # 导入音频提取功能
 from sperate_audio import convert_to_audio
@@ -65,7 +65,7 @@ def analyze_video_url(url):
     try:
         print(f"🔍 开始分析URL: {url}")
         
-        # 使用 dlp下载器.py 的函数检查是否为合集
+        # 使用 video_dlp.py 的函数检查是否为合集
         is_playlist, output_lines = check_playlist(url)
         
         if is_playlist and output_lines:
