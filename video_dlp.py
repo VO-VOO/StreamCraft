@@ -148,8 +148,16 @@ def download_videos(url, videos=None, selected_indices=None, cookies_path=None, 
                     if cookies_path and os.path.exists(cookies_path):
                         download_cmd.extend(["--cookies", cookies_path])
                     
-                    # 对于B站等网站，使用自动格式选择，让yt-dlp自动合并音视频
-                    download_cmd.extend(["-f", "best[height<=1080]/bestvideo[height<=1080]+bestaudio/best"])
+                    # 优化的清晰度选择策略：优先1080p，然后向下寻找最高可用清晰度
+                    # 新的格式选择逻辑：
+                    # 1. 首选1080p (height=1080)
+                    # 2. 如果没有1080p，选择小于等于1080p的最高清晰度
+                    # 3. 确保音视频都有
+                    format_selector = (
+                        "bestvideo[height=1080]+bestaudio/bestvideo[height<=1080]+bestaudio/"
+                        "best[height=1080]/best[height<=1080]/best"
+                    )
+                    download_cmd.extend(["-f", format_selector])
                     
                     # 输出格式
                     download_cmd.extend([
@@ -163,8 +171,7 @@ def download_videos(url, videos=None, selected_indices=None, cookies_path=None, 
             
             print("所选视频下载完成！")
         else:
-            # 下载单个视频
-            print(f"\n正在下载单个视频: {url}")
+            # 下载单个视频            print(f"\n正在下载单个视频: {url}")
             
             # 构建下载命令，使用正确的Python解释器
             download_cmd = [python_exe, "-m", "yt_dlp"]
@@ -173,8 +180,16 @@ def download_videos(url, videos=None, selected_indices=None, cookies_path=None, 
             if cookies_path and os.path.exists(cookies_path):
                 download_cmd.extend(["--cookies", cookies_path])
             
-            # 对于B站等网站，使用自动格式选择，让yt-dlp自动合并音视频
-            download_cmd.extend(["-f", "best[height<=1080]/bestvideo[height<=1080]+bestaudio/best"])
+            # 优化的清晰度选择策略：优先1080p，然后向下寻找最高可用清晰度
+            # 新的格式选择逻辑：
+            # 1. 首选1080p (height=1080)
+            # 2. 如果没有1080p，选择小于等于1080p的最高清晰度
+            # 3. 确保音视频都有
+            format_selector = (
+                "bestvideo[height=1080]+bestaudio/bestvideo[height<=1080]+bestaudio/"
+                "best[height=1080]/best[height<=1080]/best"
+            )
+            download_cmd.extend(["-f", format_selector])
             
             # 输出格式
             download_cmd.extend([

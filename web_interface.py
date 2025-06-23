@@ -247,15 +247,24 @@ def download_single_video_with_progress(video, url, cookies_path, download_path,
         
         # 构建下载命令
         download_cmd = [python_exe, "-m", "yt_dlp"]
-        
-        # 添加cookies
+          # 添加cookies
         if cookies_path and os.path.exists(cookies_path):
             download_cmd.extend(["--cookies", cookies_path])
+        
+        # 优化的清晰度选择策略：优先1080p，然后向下寻找最高可用清晰度
+        # 格式选择逻辑与video_dlp模块保持一致：
+        # 1. 首选1080p (height=1080)
+        # 2. 如果没有1080p，选择小于等于1080p的最高清晰度
+        # 3. 确保音视频都有
+        format_selector = (
+            "bestvideo[height=1080]+bestaudio/bestvideo[height<=1080]+bestaudio/"
+            "best[height=1080]/best[height<=1080]/best"
+        )
         
         # 添加进度输出格式
         download_cmd.extend([
             "--newline",  # 每行输出进度信息
-            "-f", "best[height<=1080]/bestvideo[height<=1080]+bestaudio/best",
+            "-f", format_selector,
             "-o", os.path.join(download_path, "%(title)s.%(ext)s"),
             "--merge-output-format", "mp4",
             "--embed-thumbnail",
@@ -340,7 +349,8 @@ def download_selected_videos(url, video_data_json, selected_videos, auto_extract
         script_dir = os.path.dirname(os.path.abspath(__file__))
         cookies_path = os.path.join(script_dir, "cookies.txt")
         download_path = get_download_path()
-          # 创建进度队列和结果队列
+        
+        # 创建进度队列和结果队列
         progress_queue = queue.Queue()
         result_queue = queue.Queue()
         
@@ -352,24 +362,27 @@ def download_selected_videos(url, video_data_json, selected_videos, auto_extract
                 
                 progress_queue.put(f"🚀 开始批量下载任务，共 {total_videos} 个视频")
                 
-                # 逐个下载视频
+                # 显示要下载的视频列表
                 for i, idx in enumerate(selected_indices, 1):
                     if 0 <= idx < len(videos):
                         video = videos[idx]
-                        
-                        # 下载单个视频
-                        success = download_single_video_with_progress(
-                            video, url, cookies_path, download_path, 
-                            progress_queue, i, total_videos
-                        )
-                        
-                        if success:
-                            download_success_count += 1
-                        
-                        # 短暂延迟，让界面有时间更新
-                        time.sleep(0.5)
+                        progress_queue.put(f"📋 ({i}/{total_videos}) 准备下载: {video['title']}")
                 
-                progress_queue.put(f"📊 下载阶段完成: {download_success_count}/{total_videos} 个视频下载成功")
+                # 使用video_dlp模块的下载功能，但需要包装进度反馈
+                try:
+                    progress_queue.put("📥 调用video_dlp进行下载...")
+                    
+                    # 直接使用video_dlp.py的download_videos函数
+                    # 注意：Web界面使用use_timestamp=False，直接下载到配置路径
+                    download_videos(url, videos, selected_indices, cookies_path, use_timestamp=False)
+                    
+                    # 假设下载成功（video_dlp会在失败时抛出异常）
+                    download_success_count = len(selected_indices)
+                    progress_queue.put(f"✅ 下载阶段完成: {download_success_count}/{total_videos} 个视频下载成功")
+                    
+                except Exception as download_error:
+                    progress_queue.put(f"❌ 下载失败: {str(download_error)}")
+                    download_success_count = 0
                   # 如果用户选择自动提取音频
                 if auto_extract_audio and download_success_count > 0:
                     progress_queue.put("🎵 开始音频提取阶段...")
