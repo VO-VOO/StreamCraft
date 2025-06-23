@@ -342,8 +342,10 @@ def download_selected_videos(url, video_data_json, selected_videos, auto_extract
         
         if not selected_indices:
             return "❌ 没有有效的视频选择"
-        
         print(f"🚀 开始下载 {len(selected_indices)} 个视频...")
+        
+        # 判断是否为视频合集（多个视频或包含playlist信息）
+        is_playlist = len(videos) > 1 or (videos and videos[0].get('playlist_title'))
         
         # 获取cookies路径和下载路径
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -368,28 +370,49 @@ def download_selected_videos(url, video_data_json, selected_videos, auto_extract
                         video = videos[idx]
                         progress_queue.put(f"📋 ({i}/{total_videos}) 准备下载: {video['title']}")
                 
-                # 使用video_dlp模块的下载功能，但需要包装进度反馈
+                # 根据是否为合集决定时间戳文件夹策略
+                if is_playlist:
+                    progress_queue.put("📁 检测到视频合集，将创建时间戳文件夹进行分类管理")
+                    use_timestamp = True
+                else:
+                    progress_queue.put("📹 单个视频下载，直接保存到配置路径")
+                    use_timestamp = False
+                
+                # 使用video_dlp模块的下载功能
                 try:
                     progress_queue.put("📥 调用video_dlp进行下载...")
                     
                     # 直接使用video_dlp.py的download_videos函数
-                    # 注意：Web界面使用use_timestamp=False，直接下载到配置路径
-                    download_videos(url, videos, selected_indices, cookies_path, use_timestamp=False)
+                    # 根据是否为合集决定是否使用时间戳文件夹
+                    download_videos(url, videos, selected_indices, cookies_path, use_timestamp=use_timestamp)
                     
                     # 假设下载成功（video_dlp会在失败时抛出异常）
                     download_success_count = len(selected_indices)
-                    progress_queue.put(f"✅ 下载阶段完成: {download_success_count}/{total_videos} 个视频下载成功")
+                    
+                    if use_timestamp:
+                        progress_queue.put(f"✅ 下载阶段完成: {download_success_count}/{total_videos} 个视频已下载到时间戳文件夹")
+                    else:
+                        progress_queue.put(f"✅ 下载阶段完成: {download_success_count}/{total_videos} 个视频下载成功")
                     
                 except Exception as download_error:
                     progress_queue.put(f"❌ 下载失败: {str(download_error)}")
-                    download_success_count = 0
-                  # 如果用户选择自动提取音频
+                    download_success_count = 0                # 如果用户选择自动提取音频
                 if auto_extract_audio and download_success_count > 0:
                     progress_queue.put("🎵 开始音频提取阶段...")
                     
                     # 确定音频格式选择
                     format_choice = "1" if audio_format == "AAC" else "2"  # 1为AAC，2为FLAC
                     keep_original_choice = "1" if keep_original else "2"  # 1保留，2删除
+                    
+                    # 确定实际的下载路径
+                    if use_timestamp:
+                        # 当使用时间戳文件夹时，需要获取实际创建的文件夹路径
+                        from video_dlp import create_download_folder
+                        actual_download_path = create_download_folder(use_timestamp=True)
+                        progress_queue.put(f"📁 音频提取将在时间戳文件夹中进行: {os.path.basename(actual_download_path)}")
+                    else:
+                        actual_download_path = download_path
+                        progress_queue.put(f"📁 音频提取将在配置路径中进行")
                     
                     audio_success_count = 0
                     
@@ -400,8 +423,8 @@ def download_selected_videos(url, video_data_json, selected_videos, auto_extract
                             
                             progress_queue.put(f"🔍 ({i}/{total_videos}) 查找视频文件: {video_title}")
                             
-                            # 智能查找视频文件
-                            video_file_path = find_video_file(download_path, video_title)
+                            # 在实际下载路径中智能查找视频文件
+                            video_file_path = find_video_file(actual_download_path, video_title)
                             
                             if video_file_path and os.path.exists(video_file_path):
                                 progress_queue.put(f"🎵 ({i}/{total_videos}) 开始提取音频: {os.path.basename(video_file_path)}")
