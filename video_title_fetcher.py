@@ -336,13 +336,15 @@ class VideoTitleFetcher:
                     video['title'] = f"{main_title} - Part {playlist_index}"
             
             return videos
-          # 如果前面的方法都失败，尝试使用yt-dlp
+        
+        # 如果前面的方法都失败，尝试使用yt-dlp
         print("⚠️ 使用yt-dlp备选方案获取YouTube视频标题")
         if len(videos) <= 10:
             return self.get_titles_via_ytdlp(videos, max_videos=len(videos))
         else:
             return self._use_fallback_titles(videos)
-      # _enhance_other_titles方法已被移除
+    
+    # _enhance_other_titles方法已被移除
     # 处理逻辑已合并到主方法enhance_videos中
     
     def _use_fallback_titles(self, videos: List[Dict]) -> List[Dict]:
@@ -389,17 +391,16 @@ def enhance_video_titles(videos: List[Dict], url: str, cookies_path: Optional[st
 
 
 if __name__ == "__main__":
+
+    
     # 示例用法
     test_videos = [
-        {'title': '视频_1', 'url': 'https://www.bilibili.com/video/BV1xxxxxx', 'playlist_index': 1, 'playlist_title': '测试合集'},
-        {'title': '视频_2', 'url': 'https://www.bilibili.com/video/BV2xxxxxx', 'playlist_index': 2, 'playlist_title': '测试合集'}
+        {'url': 'https://www.bilibili.com/video/BV1xxxxxx', 'playlist_index': 1, 'playlist_title': '测试合集'},
+        {'url': 'https://www.youtube.com/watch?v=xxxxxxx', 'playlist_index': 2, 'playlist_title': '测试合集'}
     ]
-    test_url = "https://www.bilibili.com/video/BV1xxxxxx"
-    
-    enhanced_videos = enhance_video_titles(test_videos, test_url, cookies_path='cookies.txt')
-    
-    print("增强后的视频标题:")
+    test_url = 'https://www.bilibili.com/video/BV1xxxxxx'
+    cookies_path = None  # 如果有cookies文件，可以设置路径
+
+    enhanced_videos = enhance_video_titles(test_videos, test_url, cookies_path)
     for video in enhanced_videos:
         print(video['title'])
-
-

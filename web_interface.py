@@ -237,6 +237,73 @@ def find_video_file(download_path, video_title):
     return None
 
 
+def download_single_video_with_progress(video, url, cookies_path, download_path, progress_queue, video_num, total_videos):
+    """下载单个视频并报告进度"""
+    try:
+        python_exe = get_python_executable()
+        video_title = video['title']
+        
+        progress_queue.put(f"🎬 ({video_num}/{total_videos}) 开始下载: {video_title}")
+        
+        # 构建下载命令
+        download_cmd = [python_exe, "-m", "yt_dlp"]
+        
+        # 添加cookies
+        if cookies_path and os.path.exists(cookies_path):
+            download_cmd.extend(["--cookies", cookies_path])
+        
+        # 添加进度输出格式
+        download_cmd.extend([
+            "--newline",  # 每行输出进度信息
+            "-f", "best[height<=1080]/bestvideo[height<=1080]+bestaudio/best",
+            "-o", os.path.join(download_path, "%(title)s.%(ext)s"),
+            "--merge-output-format", "mp4",
+            "--embed-thumbnail",
+            video['url']
+        ])
+          # 启动下载进程
+        process = subprocess.Popen(
+            download_cmd, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.STDOUT, 
+            text=True,
+            universal_newlines=True
+        )
+        
+        # 实时读取输出
+        last_progress = ""
+        if process.stdout:
+            for line in process.stdout:
+                line = line.strip()
+                if line:
+                    # 检测进度信息
+                    if "%" in line and ("ETA" in line or "of" in line):
+                        # 解析进度信息
+                        if line != last_progress:
+                            progress_queue.put(f"📥 ({video_num}/{total_videos}) {line}")
+                            last_progress = line
+                    elif "Downloading" in line:
+                        progress_queue.put(f"📂 ({video_num}/{total_videos}) {line}")
+                    elif "Merging" in line:
+                        progress_queue.put(f"🔄 ({video_num}/{total_videos}) 合并音视频...")
+                    elif "has already been downloaded" in line:
+                        progress_queue.put(f"⚠️ ({video_num}/{total_videos}) 文件已存在，跳过下载")
+        
+        # 等待进程完成
+        return_code = process.wait()
+        
+        if return_code == 0:
+            progress_queue.put(f"✅ ({video_num}/{total_videos}) 下载完成: {video_title}")
+            return True
+        else:
+            progress_queue.put(f"❌ ({video_num}/{total_videos}) 下载失败: {video_title}")
+            return False
+            
+    except Exception as e:
+        progress_queue.put(f"❌ ({video_num}/{total_videos}) 下载异常: {str(e)}")
+        return False
+
+
 def download_selected_videos(url, video_data_json, selected_videos, auto_extract_audio, audio_format, keep_original):
     """下载选中的视频"""
     if not url.strip():
@@ -269,66 +336,120 @@ def download_selected_videos(url, video_data_json, selected_videos, auto_extract
         
         print(f"🚀 开始下载 {len(selected_indices)} 个视频...")
         
-        # 获取cookies路径
+        # 获取cookies路径和下载路径
         script_dir = os.path.dirname(os.path.abspath(__file__))
         cookies_path = os.path.join(script_dir, "cookies.txt")
-          # 使用 dlp下载器.py 的下载函数
+        download_path = get_download_path()
+          # 创建进度队列和结果队列
+        progress_queue = queue.Queue()
         result_queue = queue.Queue()
         
-        def download_thread():
+        def enhanced_download_thread():
             try:
-                # 调用 dlp下载器.py 的下载函数，Web界面不使用时间戳文件夹
-                download_videos(url, videos, selected_indices, cookies_path, use_timestamp=False)
+                total_videos = len(selected_indices)
+                download_success_count = 0
+                audio_success_count = 0  # 在开始就初始化
                 
-                # 如果用户选择自动提取音频
-                if auto_extract_audio:
-                    result_queue.put("🎵 开始提取音频...")
-                    
-                    # 获取下载路径
-                    download_path = get_download_path()
+                progress_queue.put(f"🚀 开始批量下载任务，共 {total_videos} 个视频")
+                
+                # 逐个下载视频
+                for i, idx in enumerate(selected_indices, 1):
+                    if 0 <= idx < len(videos):
+                        video = videos[idx]
+                        
+                        # 下载单个视频
+                        success = download_single_video_with_progress(
+                            video, url, cookies_path, download_path, 
+                            progress_queue, i, total_videos
+                        )
+                        
+                        if success:
+                            download_success_count += 1
+                        
+                        # 短暂延迟，让界面有时间更新
+                        time.sleep(0.5)
+                
+                progress_queue.put(f"📊 下载阶段完成: {download_success_count}/{total_videos} 个视频下载成功")
+                  # 如果用户选择自动提取音频
+                if auto_extract_audio and download_success_count > 0:
+                    progress_queue.put("🎵 开始音频提取阶段...")
                     
                     # 确定音频格式选择
                     format_choice = "1" if audio_format == "AAC" else "2"  # 1为AAC，2为FLAC
                     keep_original_choice = "1" if keep_original else "2"  # 1保留，2删除
-                      # 提取每个下载的视频的音频
-                    success_count = 0
-                    total_count = len(selected_indices)
                     
-                    for idx in selected_indices:
+                    audio_success_count = 0
+                    
+                    for i, idx in enumerate(selected_indices, 1):
                         if 0 <= idx < len(videos):
                             video = videos[idx]
                             video_title = video['title']
+                            
+                            progress_queue.put(f"🔍 ({i}/{total_videos}) 查找视频文件: {video_title}")
                             
                             # 智能查找视频文件
                             video_file_path = find_video_file(download_path, video_title)
                             
                             if video_file_path and os.path.exists(video_file_path):
-                                result_queue.put(f"🎵 正在提取音频: {os.path.basename(video_file_path)}")
+                                progress_queue.put(f"🎵 ({i}/{total_videos}) 开始提取音频: {os.path.basename(video_file_path)}")
                                 
                                 if convert_to_audio(video_file_path, format_choice, keep_original_choice):
-                                    success_count += 1
-                                    result_queue.put(f"✅ 音频提取成功: {os.path.basename(video_file_path)}")
+                                    audio_success_count += 1
+                                    progress_queue.put(f"✅ ({i}/{total_videos}) 音频提取成功: {audio_format}格式")
                                 else:
-                                    result_queue.put(f"❌ 音频提取失败: {os.path.basename(video_file_path)}")
+                                    progress_queue.put(f"❌ ({i}/{total_videos}) 音频提取失败")
                             else:
-                                result_queue.put(f"⚠️ 未找到视频文件: {video_title}")
+                                progress_queue.put(f"⚠️ ({i}/{total_videos}) 未找到视频文件，跳过音频提取")
+                            
+                            # 短暂延迟
+                            time.sleep(0.3)
                     
-                    result_queue.put(f"🎵 音频提取完成! 成功: {success_count}/{total_count}")
+                    progress_queue.put(f"🎵 音频提取阶段完成: {audio_success_count}/{total_videos} 个音频提取成功")                # 最终总结
+                final_message = f"🎉 所有任务完成!\n"
+                final_message += f"📊 视频下载: {download_success_count}/{total_videos}\n"
+                if auto_extract_audio and download_success_count > 0:
+                    final_message += f"🎵 音频提取: {audio_success_count}/{total_videos} ({audio_format}格式)"
                 
-                result_queue.put("✅ 所有任务完成！")
+                result_queue.put(final_message)
+                
             except Exception as e:
-                result_queue.put(f"❌ 处理失败: {str(e)}")
+                error_msg = f"❌ 处理失败: {str(e)}"
+                progress_queue.put(error_msg)
+                result_queue.put(error_msg)
         
-        # 在新线程中执行下载，避免阻塞界面
-        thread = threading.Thread(target=download_thread)
+        # 启动增强的下载线程
+        thread = threading.Thread(target=enhanced_download_thread)
         thread.start()
         
-        # 等待下载完成（最多等待30秒显示初始状态）
+        # 收集并返回所有进度信息
+        all_progress = []
+        timeout_count = 0
+        max_timeout = 10  # 最多等待10次超时（每次1秒）
+        
+        while thread.is_alive() or not progress_queue.empty():
+            try:
+                # 尝试获取进度信息
+                message = progress_queue.get(timeout=1)
+                all_progress.append(message)
+                timeout_count = 0  # 重置超时计数
+            except queue.Empty:
+                timeout_count += 1
+                if timeout_count >= max_timeout and thread.is_alive():
+                    all_progress.append("🔄 任务正在进行中...（请稍候）")
+                    break
+        
+        # 获取最终结果
         try:
-            result = result_queue.get(timeout=30)
-            return result
+            final_result = result_queue.get(timeout=2)
+            all_progress.append(final_result)
         except queue.Empty:
-            return "🔄 下载正在进行中...（请查看终端输出获取详细进度）"
+            if thread.is_alive():
+                all_progress.append("🔄 任务仍在进行中，请查看终端获取详细信息")
+            else:
+                all_progress.append("✅ 任务已完成")
+        
+        # 返回所有进度信息
+        return "\n".join(all_progress)
             
     except Exception as e:
         return f"❌ 处理失败: {str(e)}"
