@@ -10,7 +10,7 @@ from typing import List, Tuple, Optional
 import threading
 import queue
 
-# 导入 video_dlp.py 的函数
+# 导入视频下载功能
 from video_dlp import check_playlist, get_playlist_videos, download_videos, get_python_executable
 from video_title_fetcher import enhance_video_titles
 # 导入音频提取功能
